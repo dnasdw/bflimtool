@@ -263,7 +263,7 @@ bool CBflimTool::encodeFile()
 
 int main(int argc, char* argv[])
 {
-	FSetLocale();
+	SetLocale();
 	CBflimTool tool;
 	if (tool.ParseOptions(argc, argv) != 0)
 	{

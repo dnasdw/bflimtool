@@ -1,14 +1,14 @@
 #ifndef BFLIM_H_
 #define BFLIM_H_
 
-#include "utility.h"
+#include <sdw.h>
 
 namespace pvrtexture
 {
 	class CPVRTexture;
 }
 
-#include MSC_PUSH_PACKED
+#include SDW_MSC_PUSH_PACKED
 struct SBflimHeader
 {
 	u32 Signature;
@@ -18,7 +18,7 @@ struct SBflimHeader
 	u32 FileSize;
 	u16 DataBlocks;
 	u16 Reserved;
-} GNUC_PACKED;
+} SDW_GNUC_PACKED;
 
 struct SImageBlock
 {
@@ -30,8 +30,8 @@ struct SImageBlock
 	u8 Format;
 	u8 Rotate;
 	u32 ImageSize;
-} GNUC_PACKED;
-#include MSC_POP_PACKED
+} SDW_GNUC_PACKED;
+#include SDW_MSC_POP_PACKED
 
 class CBflim
 {

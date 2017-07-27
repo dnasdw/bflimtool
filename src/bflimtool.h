@@ -1,7 +1,7 @@
 #ifndef BFLIMTOOL_H_
 #define BFLIMTOOL_H_
 
-#include "utility.h"
+#include <sdw.h>
 
 class CBflimTool
 {
