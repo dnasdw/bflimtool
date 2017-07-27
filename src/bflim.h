@@ -26,7 +26,7 @@ struct SImageBlock
 	u32 HeaderSize;
 	u16 Width;
 	u16 Height;
-	u16 Unknown;
+	u16 Alignment;
 	u8 Format;
 	u8 Rotate;
 	u32 ImageSize;
@@ -50,20 +50,18 @@ public:
 		kTextureFormatRGBA8888 = 9,
 		kTextureFormatETC1 = 10,
 		kTextureFormatETC1_A4 = 11,
-		kTextureFormatL4 = 0x12,
-		kTextureFormatA4 = 0x13
+		kTextureFormatL4 = 12,
+		kTextureFormatA4 = 13,
+		kTextureFormatL4_another = 0x12,
+		kTextureFormatA4_another = 0x13
 	};
 	CBflim();
 	~CBflim();
 	void SetFileName(const char* a_pFileName);
 	void SetPngName(const char* a_pPngName);
-	void SetTextureFormat(ETextureFormat a_eTextureFormat);
-	void SetRotate(n32 a_nRotate);
-	void SetVersion(u32 a_uVersion);
 	void SetVerbose(bool a_bVerbose);
 	bool DecodeFile();
 	bool EncodeFile();
-	bool CreateFile();
 	static bool IsBflimFile(const char* a_pFileName);
 	static const u32 s_uSignatureBflim;
 	static const u32 s_uSignatureImage;
@@ -75,9 +73,6 @@ private:
 	static void encode(u8* a_pData, n32 a_nWidth, n32 a_nHeight, n32 a_nFormat, n32 a_nRotate, n32 a_nMipmapLevel, n32 a_nBPP, u8** a_pBuffer);
 	const char* m_pFileName;
 	const char* m_pPngName;
-	ETextureFormat m_eTextureFormat;
-	n32 m_nRotate;
-	u32 m_uVersion;
 	bool m_bVerbose;
 	FILE* m_fpBflim;
 };

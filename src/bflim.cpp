@@ -20,9 +20,6 @@ const int CBflim::s_nDecodeTransByte[64] =
 CBflim::CBflim()
 	: m_pFileName(nullptr)
 	, m_pPngName(nullptr)
-	, m_eTextureFormat(kTextureFormatRGBA8888)
-	, m_nRotate(4)
-	, m_uVersion(0x01000000)
 	, m_bVerbose(false)
 	, m_fpBflim(nullptr)
 {
@@ -40,21 +37,6 @@ void CBflim::SetFileName(const char* a_pFileName)
 void CBflim::SetPngName(const char* a_pPngName)
 {
 	m_pPngName = a_pPngName;
-}
-
-void CBflim::SetTextureFormat(ETextureFormat a_eTextureFormat)
-{
-	m_eTextureFormat = a_eTextureFormat;
-}
-
-void CBflim::SetRotate(n32 a_nRotate)
-{
-	m_nRotate = a_nRotate;
-}
-
-void CBflim::SetVersion(u32 a_uVersion)
-{
-	m_uVersion = a_uVersion;
 }
 
 void CBflim::SetVerbose(bool a_bVerbose)
@@ -80,9 +62,9 @@ bool CBflim::DecodeFile()
 	SImageBlock* pImageBlock = reinterpret_cast<SImageBlock*>(pBin + nFileSize - sizeof(SImageBlock));
 	do
 	{
-		if (pImageBlock->Unknown != 0x80)
+		if (pImageBlock->Alignment != 0x80)
 		{
-			printf("ERROR: unknown != 0x80, %04X", pImageBlock->Unknown);
+			printf("ERROR: unknown alignment %04X", pImageBlock->Alignment);
 			bResult = false;
 			break;
 		}
@@ -187,9 +169,9 @@ bool CBflim::EncodeFile()
 	SImageBlock* pImageBlock = reinterpret_cast<SImageBlock*>(pBin + nFileSize - sizeof(SImageBlock));
 	do
 	{
-		if (pImageBlock->Unknown != 0x80)
+		if (pImageBlock->Alignment != 0x80)
 		{
-			printf("ERROR: unknown != 0x80, %04X", pImageBlock->Unknown);
+			printf("ERROR: unknown alignment %04X", pImageBlock->Alignment);
 			bResult = false;
 			break;
 		}
@@ -338,133 +320,6 @@ bool CBflim::EncodeFile()
 		delete[] pData;
 	} while (false);
 	delete[] pBin;
-	return bResult;
-}
-
-bool CBflim::CreateFile()
-{
-	bool bResult = true;
-	do
-	{
-		FILE* fp = FFopen(m_pPngName, "rb");
-		if (fp == nullptr)
-		{
-			bResult = false;
-			break;
-		}
-		png_structp png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, (png_voidp)nullptr, nullptr, nullptr);
-		if (png_ptr == nullptr)
-		{
-			fclose(fp);
-			printf("ERROR: png_create_read_struct error\n\n");
-			bResult = false;
-			break;
-		}
-		png_infop info_ptr = png_create_info_struct(png_ptr);
-		if (info_ptr == nullptr)
-		{
-			png_destroy_read_struct(&png_ptr, (png_infopp)nullptr, (png_infopp)nullptr);
-			fclose(fp);
-			printf("ERROR: png_create_info_struct error\n\n");
-			bResult = false;
-			break;
-		}
-		png_infop end_info = png_create_info_struct(png_ptr);
-		if (end_info == nullptr)
-		{
-			png_destroy_read_struct(&png_ptr, &info_ptr, (png_infopp)nullptr);
-			fclose(fp);
-			printf("ERROR: png_create_info_struct error\n\n");
-			bResult = false;
-			break;
-		}
-		if (setjmp(png_jmpbuf(png_ptr)) != 0)
-		{
-			png_destroy_read_struct(&png_ptr, &info_ptr, &end_info);
-			fclose(fp);
-			printf("ERROR: setjmp error\n\n");
-			bResult = false;
-			break;
-		}
-		png_init_io(png_ptr, fp);
-		png_read_info(png_ptr, info_ptr);
-		n32 nPngWidth = png_get_image_width(png_ptr, info_ptr);
-		n32 nPngHeight = png_get_image_height(png_ptr, info_ptr);
-		n32 nBitDepth = png_get_bit_depth(png_ptr, info_ptr);
-		if (nBitDepth != 8)
-		{
-			png_destroy_read_struct(&png_ptr, &info_ptr, (png_infopp)nullptr);
-			fclose(fp);
-			printf("ERROR: nBitDepth != 8\n\n");
-			bResult = false;
-			break;
-		}
-		n32 nColorType = png_get_color_type(png_ptr, info_ptr);
-		if (nColorType != PNG_COLOR_TYPE_RGB_ALPHA)
-		{
-			png_destroy_read_struct(&png_ptr, &info_ptr, (png_infopp)nullptr);
-			fclose(fp);
-			printf("ERROR: nColorType != PNG_COLOR_TYPE_RGB_ALPHA\n\n");
-			bResult = false;
-			break;
-		}
-		n32 nWidth = getBoundSize(nPngWidth);
-		n32 nHeight = getBoundSize(nPngHeight);
-		u8* pData = new unsigned char[nWidth * nHeight * 4];
-		png_bytepp pRowPointers = new png_bytep[nHeight];
-		for (n32 i = 0; i < nHeight; i++)
-		{
-			pRowPointers[i] = pData + i * nWidth * 4;
-		}
-		png_read_image(png_ptr, pRowPointers);
-		png_destroy_read_struct(&png_ptr, &info_ptr, &end_info);
-		for (n32 i = 0; i < nPngHeight; i++)
-		{
-			for (n32 j = nPngWidth; j < nWidth; j++)
-			{
-				*reinterpret_cast<u32*>(pRowPointers[i] + j * 4) = *reinterpret_cast<u32*>(pRowPointers[i] + (nPngWidth - 1) * 4);
-			}
-		}
-		for (n32 i = nPngHeight; i < nHeight; i++)
-		{
-			memcpy(pRowPointers[i], pRowPointers[nPngHeight - 1], nWidth * 4);
-		}
-		delete[] pRowPointers;
-		fclose(fp);
-		m_fpBflim = FFopen(m_pFileName, "wb");
-		if (m_fpBflim != nullptr)
-		{
-			SImageBlock imageBlock;
-			imageBlock.Signature = s_uSignatureImage;
-			imageBlock.HeaderSize = 0x10;
-			imageBlock.Width = nPngWidth;
-			imageBlock.Height = nPngHeight;
-			imageBlock.Unknown = 0x80;
-			imageBlock.Format = m_eTextureFormat;
-			imageBlock.Rotate = m_nRotate;
-			imageBlock.ImageSize = nWidth * nHeight * s_nBPP[imageBlock.Format] / 8;
-			SBflimHeader bflimHeader;
-			bflimHeader.Signature = s_uSignatureBflim;
-			bflimHeader.ByteOrder = 0xFEFF;
-			bflimHeader.HeaderSize = sizeof(bflimHeader);
-			bflimHeader.Version = m_uVersion;
-			bflimHeader.FileSize = imageBlock.ImageSize + sizeof(bflimHeader) + sizeof(imageBlock);
-			bflimHeader.DataBlocks = 1;
-			bflimHeader.Reserved = 0;
-			u8* pBuffer = nullptr;
-			encode(pData, nWidth, nHeight, imageBlock.Format, m_nRotate, 1, s_nBPP[imageBlock.Format], &pBuffer);
-			fwrite(pBuffer, 1, imageBlock.ImageSize, m_fpBflim);
-			fwrite(&bflimHeader, sizeof(bflimHeader), 1, fp);
-			fwrite(&imageBlock, sizeof(imageBlock), 1, fp);
-			delete[] pBuffer;
-			fclose(m_fpBflim);
-		}
-		else
-		{
-			bResult = false;
-		}
-		delete[] pData;
-	} while (false);
 	return bResult;
 }
 

@@ -2,7 +2,6 @@
 #define BFLIMTOOL_H_
 
 #include "utility.h"
-#include "bflim.h"
 
 class CBflimTool
 {
@@ -12,7 +11,6 @@ public:
 		kParseOptionReturnSuccess,
 		kParseOptionReturnIllegalOption,
 		kParseOptionReturnNoArgument,
-		kParseOptionReturnUnknownArgument,
 		kParseOptionReturnOptionConflict
 	};
 	enum EAction
@@ -20,7 +18,6 @@ public:
 		kActionNone,
 		kActionDecode,
 		kActionEncode,
-		kActionCreate,
 		kActionHelp
 	};
 	struct SOption
@@ -41,15 +38,10 @@ private:
 	EParseOptionReturn parseOptions(int a_nKey, int& a_nIndex, int a_nArgc, char* a_pArgv[]);
 	bool decodeFile();
 	bool encodeFile();
-	bool createFile();
 	EAction m_eAction;
 	const char* m_pFileName;
 	const char* m_pPngName;
-	CBflim::ETextureFormat m_eTextureFormat;
-	n32 m_nRotate;
-	u32 m_uVersion;
 	bool m_bVerbose;
-	const char* m_pMessage;
 };
 
 #endif	// BFLIMTOOL_H_

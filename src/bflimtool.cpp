@@ -1,15 +1,12 @@
 #include "bflimtool.h"
+#include "bflim.h"
 
 CBflimTool::SOption CBflimTool::s_Option[] =
 {
 	{ "decode", 'd', "decode the bflim file" },
 	{ "encode", 'e', "encode the bflim file" },
-	{ "create", 'c', "create the bflim file" },
 	{ "file", 'f', "the bflim file" },
 	{ "png", 'p', "the png file for the bflim file" },
-	{ "format", 't', "[L8|A8|LA44|LA88|HL8|RGB565|RGB888|RGBA5551|RGBA4444|RGBA8888|ETC1|ETC1_A4|L4|A4]\n\t\tthe format for the bflim file, only for the create action, default is RGBA8888" },
-	{ "rotate", 'r', "[4|8]\n\t\tthe rotate type for the bflim file, only for the create action, default is 4" },
-	{ "version", 0, "[0-255].[0-255].[0-255].[0-255]\n\t\tthe version of the bflim file, only for the create action, default is 1.0.0.0" },
 	{ "verbose", 'v', "show the info" },
 	{ "help", 'h', "show this help" },
 	{ nullptr, 0, nullptr }
@@ -19,11 +16,7 @@ CBflimTool::CBflimTool()
 	: m_eAction(kActionNone)
 	, m_pFileName(nullptr)
 	, m_pPngName(nullptr)
-	, m_eTextureFormat(CBflim::kTextureFormatRGBA8888)
-	, m_nRotate(4)
-	, m_uVersion(0x01000000)
 	, m_bVerbose(false)
-	, m_pMessage(nullptr)
 {
 }
 
@@ -60,9 +53,6 @@ int CBflimTool::ParseOptions(int a_nArgc, char* a_pArgv[])
 				case kParseOptionReturnNoArgument:
 					printf("ERROR: no argument\n\n");
 					return 1;
-				case kParseOptionReturnUnknownArgument:
-					printf("ERROR: unknown argument \"%s\"\n\n", m_pMessage);
-					return 1;
 				case kParseOptionReturnOptionConflict:
 					printf("ERROR: option conflict\n\n");
 					return 1;
@@ -80,9 +70,6 @@ int CBflimTool::ParseOptions(int a_nArgc, char* a_pArgv[])
 				return 1;
 			case kParseOptionReturnNoArgument:
 				printf("ERROR: no argument\n\n");
-				return 1;
-			case kParseOptionReturnUnknownArgument:
-				printf("ERROR: unknown argument \"%s\"\n\n", m_pMessage);
 				return 1;
 			case kParseOptionReturnOptionConflict:
 				printf("ERROR: option conflict\n\n");
@@ -132,7 +119,6 @@ int CBflimTool::Help()
 	printf("sample:\n");
 	printf("  bflimtool -dvfp title.bflim title.png\n");
 	printf("  bflimtool -evfp title.bflim title_new.png\n");
-	printf("  bflimtool -cvtrfp ETC1_A4 4 title_new.bflim title_new.png --version 3.0.0.0\n");
 	printf("\n");
 	printf("option:\n");
 	SOption* pOption = s_Option;
@@ -183,14 +169,6 @@ int CBflimTool::Action()
 			return 1;
 		}
 	}
-	if (m_eAction == kActionCreate)
-	{
-		if (!createFile())
-		{
-			printf("ERROR: create file failed\n\n");
-			return 1;
-		}
-	}
 	if (m_eAction == kActionHelp)
 	{
 		return Help();
@@ -222,17 +200,6 @@ CBflimTool::EParseOptionReturn CBflimTool::parseOptions(const char* a_pName, int
 			return kParseOptionReturnOptionConflict;
 		}
 	}
-	else if (strcmp(a_pName, "create") == 0)
-	{
-		if (m_eAction == kActionNone)
-		{
-			m_eAction = kActionCreate;
-		}
-		else if (m_eAction != kActionCreate && m_eAction != kActionHelp)
-		{
-			return kParseOptionReturnOptionConflict;
-		}
-	}
 	else if (strcmp(a_pName, "file") == 0)
 	{
 		if (a_nIndex + 1 >= a_nArgc)
@@ -248,122 +215,6 @@ CBflimTool::EParseOptionReturn CBflimTool::parseOptions(const char* a_pName, int
 			return kParseOptionReturnNoArgument;
 		}
 		m_pPngName = a_pArgv[++a_nIndex];
-	}
-	else if (strcmp(a_pName, "format") == 0)
-	{
-		if (a_nIndex + 1 >= a_nArgc)
-		{
-			return kParseOptionReturnNoArgument;
-		}
-		char* pType = a_pArgv[++a_nIndex];
-		if (strcmp(pType, "L8") == 0)
-		{
-			m_eTextureFormat = CBflim::kTextureFormatL8;
-		}
-		else if (strcmp(pType, "A8") == 0)
-		{
-			m_eTextureFormat = CBflim::kTextureFormatA8;
-		}
-		else if (strcmp(pType, "LA44") == 0)
-		{
-			m_eTextureFormat = CBflim::kTextureFormatLA44;
-		}
-		else if (strcmp(pType, "LA88") == 0)
-		{
-			m_eTextureFormat = CBflim::kTextureFormatLA88;
-		}
-		else if (strcmp(pType, "HL8") == 0)
-		{
-			m_eTextureFormat = CBflim::kTextureFormatHL8;
-		}
-		else if (strcmp(pType, "RGB565") == 0)
-		{
-			m_eTextureFormat = CBflim::kTextureFormatRGB565;
-		}
-		else if (strcmp(pType, "RGB888") == 0)
-		{
-			m_eTextureFormat = CBflim::kTextureFormatRGB888;
-		}
-		else if (strcmp(pType, "RGBA5551") == 0)
-		{
-			m_eTextureFormat = CBflim::kTextureFormatRGBA5551;
-		}
-		else if (strcmp(pType, "RGBA4444") == 0)
-		{
-			m_eTextureFormat = CBflim::kTextureFormatRGBA4444;
-		}
-		else if (strcmp(pType, "RGBA8888") == 0)
-		{
-			m_eTextureFormat = CBflim::kTextureFormatRGBA8888;
-		}
-		else if (strcmp(pType, "ETC1") == 0)
-		{
-			m_eTextureFormat = CBflim::kTextureFormatETC1;
-		}
-		else if (strcmp(pType, "ETC1_A4") == 0)
-		{
-			m_eTextureFormat = CBflim::kTextureFormatETC1_A4;
-		}
-		else if (strcmp(pType, "L4") == 0)
-		{
-			m_eTextureFormat = CBflim::kTextureFormatL4;
-		}
-		else if (strcmp(pType, "A4") == 0)
-		{
-			m_eTextureFormat = CBflim::kTextureFormatA4;
-		}
-		else
-		{
-			m_pMessage = pType;
-			return kParseOptionReturnUnknownArgument;
-		}
-	}
-	else if (strcmp(a_pName, "rotate") == 0)
-	{
-		if (a_nIndex + 1 >= a_nArgc)
-		{
-			return kParseOptionReturnNoArgument;
-		}
-		char* pType = a_pArgv[++a_nIndex];
-		m_nRotate = FSToN32(pType);
-		if (m_nRotate != 4 && m_nRotate != 8)
-		{
-			m_pMessage = pType;
-			return kParseOptionReturnUnknownArgument;
-		}
-	}
-	else if (strcmp(a_pName, "version") == 0)
-	{
-		if (a_nIndex + 1 >= a_nArgc)
-		{
-			return kParseOptionReturnNoArgument;
-		}
-		char* pType = a_pArgv[++a_nIndex];
-		vector<string> vVersion = FSSplit<string>(pType, ".");
-		if (vVersion.size() > 4)
-		{
-			m_pMessage = pType;
-			return kParseOptionReturnUnknownArgument;
-		}
-		for (int i = static_cast<int>(vVersion.size()); i < 4; i++)
-		{
-			vVersion.push_back("0");
-		}
-		vector<n32> vVersionInt;
-		for (auto it = vVersion.begin(); it != vVersion.end(); ++it)
-		{
-			vVersionInt.push_back(FSToN32(*it));
-		}
-		m_uVersion = 0;
-		for (int i = 0; i < 4; i++)
-		{
-			if (vVersionInt[i] < 0 || vVersionInt[i] > 255)
-			{
-				m_pMessage = pType;
-				return kParseOptionReturnUnknownArgument;
-			}
-			m_uVersion |= vVersionInt[i] << ((3 - i) * 8);
-		}
 	}
 	else if (strcmp(a_pName, "verbose") == 0)
 	{
@@ -404,18 +255,6 @@ bool CBflimTool::encodeFile()
 	bflim.SetPngName(m_pPngName);
 	bflim.SetVerbose(m_bVerbose);
 	return bflim.EncodeFile();
-}
-
-bool CBflimTool::createFile()
-{
-	CBflim bflim;
-	bflim.SetFileName(m_pFileName);
-	bflim.SetPngName(m_pPngName);
-	bflim.SetTextureFormat(m_eTextureFormat);
-	bflim.SetRotate(m_nRotate);
-	bflim.SetVersion(m_uVersion);
-	bflim.SetVerbose(m_bVerbose);
-	return bflim.CreateFile();
 }
 
 int main(int argc, char* argv[])
