@@ -4,7 +4,7 @@
 
 const u32 CBflim::s_uSignatureBflim = SDW_CONVERT_ENDIAN32('FLIM');
 const u32 CBflim::s_uSignatureImage = SDW_CONVERT_ENDIAN32('imag');
-const int CBflim::s_nBPP[] = { 8, 8, 8, 16, 16, 16, 24, 16, 16, 32, 4, 8, 0, 0, 0, 0, 0, 0, 4, 4 };
+const int CBflim::s_nBPP[] = { 8, 8, 8, 16, 16, 16, 24, 16, 16, 32, 4, 8, 4, 4, 0, 0, 0, 0, 4, 4 };
 const int CBflim::s_nDecodeTransByte[64] =
 {
 	 0,  1,  4,  5, 16, 17, 20, 21,
@@ -18,10 +18,7 @@ const int CBflim::s_nDecodeTransByte[64] =
 };
 
 CBflim::CBflim()
-	: m_pFileName(nullptr)
-	, m_pPngName(nullptr)
-	, m_bVerbose(false)
-	, m_fpBflim(nullptr)
+	: m_bVerbose(false)
 {
 }
 
@@ -29,14 +26,14 @@ CBflim::~CBflim()
 {
 }
 
-void CBflim::SetFileName(const char* a_pFileName)
+void CBflim::SetFileName(const UString& a_sFileName)
 {
-	m_pFileName = a_pFileName;
+	m_sFileName = a_sFileName;
 }
 
-void CBflim::SetPngName(const char* a_pPngName)
+void CBflim::SetPngName(const UString& a_sPngName)
 {
-	m_pPngName = a_pPngName;
+	m_sPngName = a_sPngName;
 }
 
 void CBflim::SetVerbose(bool a_bVerbose)
@@ -47,37 +44,25 @@ void CBflim::SetVerbose(bool a_bVerbose)
 bool CBflim::DecodeFile()
 {
 	bool bResult = true;
-	m_fpBflim = Fopen(m_pFileName, "rb");
-	if (m_fpBflim == nullptr)
+	FILE* fp = UFopen(m_sFileName.c_str(), USTR("rb"));
+	if (fp == nullptr)
 	{
 		return false;
 	}
-	Fseek(m_fpBflim, 0, SEEK_END);
-	n64 nFileSize = Ftell(m_fpBflim);
-	Fseek(m_fpBflim, 0, SEEK_SET);
-	u8* pBin = new u8[static_cast<size_t>(nFileSize)];
-	fread(pBin, 1, static_cast<size_t>(nFileSize), m_fpBflim);
-	fclose(m_fpBflim);
-	SBflimHeader* pBflimHeader = reinterpret_cast<SBflimHeader*>(pBin + nFileSize - (sizeof(SBflimHeader) + sizeof(SImageBlock)));
-	SImageBlock* pImageBlock = reinterpret_cast<SImageBlock*>(pBin + nFileSize - sizeof(SImageBlock));
+	fseek(fp, 0, SEEK_END);
+	u32 uBflimSize = ftell(fp);
+	fseek(fp, 0, SEEK_SET);
+	u8* pBflim = new u8[uBflimSize];
+	fread(pBflim, 1, uBflimSize, fp);
+	fclose(fp);
+	SBflimHeader* pBflimHeader = reinterpret_cast<SBflimHeader*>(pBflim + uBflimSize - (sizeof(SBflimHeader) + sizeof(SImageBlock)));
+	SImageBlock* pImageBlock = reinterpret_cast<SImageBlock*>(pBflim + uBflimSize - sizeof(SImageBlock));
 	do
 	{
-		if (pImageBlock->Alignment != 0x80)
+		if (pImageBlock->Format < kTextureFormatL8 || (pImageBlock->Format > kTextureFormatA4 && pImageBlock->Format < kTextureFormatL4_another) || pImageBlock->Format > kTextureFormatA4_another)
 		{
-			printf("ERROR: unknown alignment %04X", pImageBlock->Alignment);
 			bResult = false;
-			break;
-		}
-		if (pImageBlock->Rotate != 4 && pImageBlock->Rotate != 8)
-		{
-			printf("ERROR: unknown rotate %d", pImageBlock->Rotate);
-			bResult = false;
-			break;
-		}
-		if (pImageBlock->Format < kTextureFormatL8 || (pImageBlock->Format > kTextureFormatETC1_A4 && pImageBlock->Format < kTextureFormatL4) || pImageBlock->Format > kTextureFormatA4)
-		{
-			printf("ERROR: unknown format %d\n\n", pImageBlock->Format);
-			bResult = false;
+			UPrintf(USTR("ERROR: unknown format %d\n\n"), pImageBlock->Format);
 			break;
 		}
 		n32 nWidth = getBoundSize(pImageBlock->Width);
@@ -85,106 +70,94 @@ bool CBflim::DecodeFile()
 		n32 nCheckSize = nWidth * nHeight * s_nBPP[pImageBlock->Format] / 8;
 		if (pImageBlock->ImageSize != nCheckSize && m_bVerbose)
 		{
-			printf("INFO: width: %X(%X), height: %X(%X), checksize: %X, size: %X, bpp: %d, format: %0X\n", nWidth, pImageBlock->Width, nHeight, pImageBlock->Height, nCheckSize, pImageBlock->ImageSize, pImageBlock->ImageSize * 8 / nWidth / nHeight, pImageBlock->Format);
+			UPrintf(USTR("INFO: width: %X(%X), height: %X(%X), checksize: %X, size: %X, bpp: %d, format: %0X\n"), nWidth, pImageBlock->Width, nHeight, pImageBlock->Height, nCheckSize, pImageBlock->ImageSize, pImageBlock->ImageSize * 8 / nWidth / nHeight, pImageBlock->Format);
 		}
 		pvrtexture::CPVRTexture* pPVRTexture = nullptr;
-		if (decode(pBin, nWidth, nHeight, pImageBlock->Format, pImageBlock->Rotate, &pPVRTexture) == 0)
+		if (decode(pBflim, nWidth, nHeight, pImageBlock->Format, pImageBlock->Flag, &pPVRTexture) == 0)
 		{
-			FILE* fp = Fopen(m_pPngName, "wb");
+			fp = UFopen(m_sPngName.c_str(), USTR("wb"));
 			if (fp == nullptr)
 			{
 				delete pPVRTexture;
 				bResult = false;
 				break;
 			}
-			png_structp png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, (png_voidp)nullptr, nullptr, nullptr);
-			if (png_ptr == nullptr)
+			png_structp pPng = png_create_write_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
+			if (pPng == nullptr)
 			{
 				fclose(fp);
 				delete pPVRTexture;
-				printf("ERROR: png_create_write_struct error\n\n");
 				bResult = false;
+				UPrintf(USTR("ERROR: png_create_write_struct error\n\n"));
 				break;
 			}
-			png_infop info_ptr = png_create_info_struct(png_ptr);
-			if (info_ptr == nullptr)
+			png_infop pInfo = png_create_info_struct(pPng);
+			if (pInfo == nullptr)
 			{
-				png_destroy_write_struct(&png_ptr, (png_infopp)nullptr);
+				png_destroy_write_struct(&pPng, nullptr);
 				fclose(fp);
 				delete pPVRTexture;
-				printf("ERROR: png_create_info_struct error\n\n");
 				bResult = false;
+				UPrintf(USTR("ERROR: png_create_info_struct error\n\n"));
 				break;
 			}
-			if (setjmp(png_jmpbuf(png_ptr)) != 0)
+			if (setjmp(png_jmpbuf(pPng)) != 0)
 			{
-				png_destroy_write_struct(&png_ptr, &info_ptr);
+				png_destroy_write_struct(&pPng, &pInfo);
 				fclose(fp);
 				delete pPVRTexture;
-				printf("ERROR: setjmp error\n\n");
 				bResult = false;
+				UPrintf(USTR("ERROR: setjmp error\n\n"));
 				break;
 			}
-			png_init_io(png_ptr, fp);
-			png_set_IHDR(png_ptr, info_ptr, pImageBlock->Width, pImageBlock->Height, 8, PNG_COLOR_TYPE_RGB_ALPHA, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
+			png_init_io(pPng, fp);
+			png_set_IHDR(pPng, pInfo, pImageBlock->Width, pImageBlock->Height, 8, PNG_COLOR_TYPE_RGB_ALPHA, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
 			u8* pData = static_cast<u8*>(pPVRTexture->getDataPtr());
 			png_bytepp pRowPointers = new png_bytep[pImageBlock->Height];
 			for (n32 i = 0; i < pImageBlock->Height; i++)
 			{
 				pRowPointers[i] = pData + i * nWidth * 4;
 			}
-			png_set_rows(png_ptr, info_ptr, pRowPointers);
-			png_write_png(png_ptr, info_ptr, PNG_TRANSFORM_IDENTITY, nullptr);
-			png_destroy_write_struct(&png_ptr, &info_ptr);
+			png_set_rows(pPng, pInfo, pRowPointers);
+			png_write_png(pPng, pInfo, PNG_TRANSFORM_IDENTITY, nullptr);
+			png_destroy_write_struct(&pPng, &pInfo);
 			delete[] pRowPointers;
 			fclose(fp);
 			delete pPVRTexture;
 		}
 		else
 		{
-			printf("ERROR: decode error\n\n");
 			bResult = false;
+			UPrintf(USTR("ERROR: decode error\n\n"));
 			break;
 		}
 	} while (false);
-	delete[] pBin;
+	delete[] pBflim;
 	return bResult;
 }
 
 bool CBflim::EncodeFile()
 {
 	bool bResult = true;
-	m_fpBflim = Fopen(m_pFileName, "rb");
-	if (m_fpBflim == nullptr)
+	FILE* fp = UFopen(m_sFileName.c_str(), USTR("rb"));
+	if (fp == nullptr)
 	{
 		return false;
 	}
-	Fseek(m_fpBflim, 0, SEEK_END);
-	n64 nFileSize = Ftell(m_fpBflim);
-	Fseek(m_fpBflim, 0, SEEK_SET);
-	u8* pBin = new u8[static_cast<size_t>(nFileSize)];
-	fread(pBin, 1, static_cast<size_t>(nFileSize), m_fpBflim);
-	fclose(m_fpBflim);
-	SBflimHeader* pBflimHeader = reinterpret_cast<SBflimHeader*>(pBin + nFileSize - (sizeof(SBflimHeader) + sizeof(SImageBlock)));
-	SImageBlock* pImageBlock = reinterpret_cast<SImageBlock*>(pBin + nFileSize - sizeof(SImageBlock));
+	fseek(fp, 0, SEEK_END);
+	u32 uBflimSize = ftell(fp);
+	fseek(fp, 0, SEEK_SET);
+	u8* pBflim = new u8[uBflimSize];
+	fread(pBflim, 1, uBflimSize, fp);
+	fclose(fp);
+	SBflimHeader* pBflimHeader = reinterpret_cast<SBflimHeader*>(pBflim + uBflimSize - (sizeof(SBflimHeader) + sizeof(SImageBlock)));
+	SImageBlock* pImageBlock = reinterpret_cast<SImageBlock*>(pBflim + uBflimSize - sizeof(SImageBlock));
 	do
 	{
-		if (pImageBlock->Alignment != 0x80)
+		if (pImageBlock->Format < kTextureFormatL8 || (pImageBlock->Format > kTextureFormatA4 && pImageBlock->Format < kTextureFormatL4_another) || pImageBlock->Format > kTextureFormatA4_another)
 		{
-			printf("ERROR: unknown alignment %04X", pImageBlock->Alignment);
 			bResult = false;
-			break;
-		}
-		if (pImageBlock->Rotate != 4 && pImageBlock->Rotate != 8)
-		{
-			printf("ERROR: unknown rotate %d", pImageBlock->Rotate);
-			bResult = false;
-			break;
-		}
-		if (pImageBlock->Format < kTextureFormatL8 || (pImageBlock->Format > kTextureFormatETC1_A4 && pImageBlock->Format < kTextureFormatL4) || pImageBlock->Format > kTextureFormatA4)
-		{
-			printf("ERROR: unknown format %d\n\n", pImageBlock->Format);
-			bResult = false;
+			UPrintf(USTR("ERROR: unknown format %d\n\n"), pImageBlock->Format);
 			break;
 		}
 		n32 nWidth = getBoundSize(pImageBlock->Width);
@@ -192,68 +165,68 @@ bool CBflim::EncodeFile()
 		n32 nCheckSize = nWidth * nHeight * s_nBPP[pImageBlock->Format] / 8;
 		if (pImageBlock->ImageSize != nCheckSize && m_bVerbose)
 		{
-			printf("INFO: width: %X(%X), height: %X(%X), checksize: %X, size: %X, bpp: %d, format: %0X\n", nWidth, pImageBlock->Width, nHeight, pImageBlock->Height, nCheckSize, pImageBlock->ImageSize, pImageBlock->ImageSize * 8 / nWidth / nHeight, pImageBlock->Format);
+			UPrintf(USTR("INFO: width: %X(%X), height: %X(%X), checksize: %X, size: %X, bpp: %d, format: %0X\n"), nWidth, pImageBlock->Width, nHeight, pImageBlock->Height, nCheckSize, pImageBlock->ImageSize, pImageBlock->ImageSize * 8 / nWidth / nHeight, pImageBlock->Format);
 		}
-		FILE* fp = Fopen(m_pPngName, "rb");
+		fp = UFopen(m_sPngName.c_str(), USTR("rb"));
 		if (fp == nullptr)
 		{
 			bResult = false;
 			break;
 		}
-		png_structp png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, (png_voidp)nullptr, nullptr, nullptr);
-		if (png_ptr == nullptr)
+		png_structp pPng = png_create_read_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
+		if (pPng == nullptr)
 		{
 			fclose(fp);
-			printf("ERROR: png_create_read_struct error\n\n");
 			bResult = false;
+			UPrintf(USTR("ERROR: png_create_read_struct error\n\n"));
 			break;
 		}
-		png_infop info_ptr = png_create_info_struct(png_ptr);
-		if (info_ptr == nullptr)
+		png_infop pInfo = png_create_info_struct(pPng);
+		if (pInfo == nullptr)
 		{
-			png_destroy_read_struct(&png_ptr, (png_infopp)nullptr, (png_infopp)nullptr);
+			png_destroy_read_struct(&pPng, nullptr, nullptr);
 			fclose(fp);
-			printf("ERROR: png_create_info_struct error\n\n");
 			bResult = false;
+			UPrintf(USTR("ERROR: png_create_info_struct error\n\n"));
 			break;
 		}
-		png_infop end_info = png_create_info_struct(png_ptr);
-		if (end_info == nullptr)
+		png_infop pEndInfo = png_create_info_struct(pPng);
+		if (pEndInfo == nullptr)
 		{
-			png_destroy_read_struct(&png_ptr, &info_ptr, (png_infopp)nullptr);
+			png_destroy_read_struct(&pPng, &pInfo, nullptr);
 			fclose(fp);
-			printf("ERROR: png_create_info_struct error\n\n");
 			bResult = false;
+			UPrintf(USTR("ERROR: png_create_info_struct error\n\n"));
 			break;
 		}
-		if (setjmp(png_jmpbuf(png_ptr)) != 0)
+		if (setjmp(png_jmpbuf(pPng)) != 0)
 		{
-			png_destroy_read_struct(&png_ptr, &info_ptr, &end_info);
+			png_destroy_read_struct(&pPng, &pInfo, &pEndInfo);
 			fclose(fp);
-			printf("ERROR: setjmp error\n\n");
 			bResult = false;
+			UPrintf(USTR("ERROR: setjmp error\n\n"));
 			break;
 		}
-		png_init_io(png_ptr, fp);
-		png_read_info(png_ptr, info_ptr);
-		n32 nPngWidth = png_get_image_width(png_ptr, info_ptr);
-		n32 nPngHeight = png_get_image_height(png_ptr, info_ptr);
-		n32 nBitDepth = png_get_bit_depth(png_ptr, info_ptr);
+		png_init_io(pPng, fp);
+		png_read_info(pPng, pInfo);
+		n32 nPngWidth = png_get_image_width(pPng, pInfo);
+		n32 nPngHeight = png_get_image_height(pPng, pInfo);
+		n32 nBitDepth = png_get_bit_depth(pPng, pInfo);
 		if (nBitDepth != 8)
 		{
-			png_destroy_read_struct(&png_ptr, &info_ptr, (png_infopp)nullptr);
+			png_destroy_read_struct(&pPng, &pInfo, &pEndInfo);
 			fclose(fp);
-			printf("ERROR: nBitDepth != 8\n\n");
 			bResult = false;
+			UPrintf(USTR("ERROR: nBitDepth != 8\n\n"));
 			break;
 		}
-		n32 nColorType = png_get_color_type(png_ptr, info_ptr);
+		n32 nColorType = png_get_color_type(pPng, pInfo);
 		if (nColorType != PNG_COLOR_TYPE_RGB_ALPHA)
 		{
-			png_destroy_read_struct(&png_ptr, &info_ptr, (png_infopp)nullptr);
+			png_destroy_read_struct(&pPng, &pInfo, &pEndInfo);
 			fclose(fp);
-			printf("ERROR: nColorType != PNG_COLOR_TYPE_RGB_ALPHA\n\n");
 			bResult = false;
+			UPrintf(USTR("ERROR: nColorType != PNG_COLOR_TYPE_RGB_ALPHA\n\n"));
 			break;
 		}
 		nWidth = getBoundSize(nPngWidth);
@@ -264,8 +237,8 @@ bool CBflim::EncodeFile()
 		{
 			pRowPointers[i] = pData + i * nWidth * 4;
 		}
-		png_read_image(png_ptr, pRowPointers);
-		png_destroy_read_struct(&png_ptr, &info_ptr, &end_info);
+		png_read_image(pPng, pRowPointers);
+		png_destroy_read_struct(&pPng, &pInfo, &pEndInfo);
 		for (n32 i = 0; i < nPngHeight; i++)
 		{
 			for (n32 j = nPngWidth; j < nWidth; j++)
@@ -281,7 +254,7 @@ bool CBflim::EncodeFile()
 		fclose(fp);
 		pvrtexture::CPVRTexture* pPVRTexture = nullptr;
 		bool bSame = false;
-		if (pImageBlock->Width == nPngWidth && pImageBlock->Height == nPngHeight && decode(pBin, nWidth, nHeight, pImageBlock->Format, pImageBlock->Rotate, &pPVRTexture) == 0)
+		if (pImageBlock->Width == nPngWidth && pImageBlock->Height == nPngHeight && decode(pBflim, nWidth, nHeight, pImageBlock->Format, pImageBlock->Flag, &pPVRTexture) == 0)
 		{
 			u8* pTextureData = static_cast<u8*>(pPVRTexture->getDataPtr());
 			bSame = true;
@@ -297,20 +270,28 @@ bool CBflim::EncodeFile()
 		delete pPVRTexture;
 		if (!bSame)
 		{
-			m_fpBflim = Fopen(m_pFileName, "wb");
-			if (m_fpBflim != nullptr)
+			fp = UFopen(m_sFileName.c_str(), USTR("wb"));
+			if (fp != nullptr)
 			{
 				u8* pBuffer = nullptr;
-				encode(pData, nWidth, nHeight, pImageBlock->Format, pImageBlock->Rotate, 1, s_nBPP[pImageBlock->Format], &pBuffer);
+				if (encode(pData, nWidth, nHeight, pImageBlock->Format, pImageBlock->Flag, 1, s_nBPP[pImageBlock->Format], &pBuffer) != 0)
+				{
+					delete[] pBuffer;
+					fclose(fp);
+					delete[] pData;
+					bResult = false;
+					UPrintf(USTR("ERROR: encode error\n\n"));
+					break;
+				}
 				pImageBlock->Width = nPngWidth;
 				pImageBlock->Height = nPngHeight;
 				pImageBlock->ImageSize = nWidth * nHeight * s_nBPP[pImageBlock->Format] / 8;
 				pBflimHeader->FileSize = pImageBlock->ImageSize + sizeof(*pBflimHeader) + sizeof(*pImageBlock);
-				fwrite(pBuffer, 1, pImageBlock->ImageSize, m_fpBflim);
+				fwrite(pBuffer, 1, pImageBlock->ImageSize, fp);
+				delete[] pBuffer;
 				fwrite(pBflimHeader, sizeof(*pBflimHeader), 1, fp);
 				fwrite(pImageBlock, sizeof(*pImageBlock), 1, fp);
-				delete[] pBuffer;
-				fclose(m_fpBflim);
+				fclose(fp);
 			}
 			else
 			{
@@ -319,24 +300,24 @@ bool CBflim::EncodeFile()
 		}
 		delete[] pData;
 	} while (false);
-	delete[] pBin;
+	delete[] pBflim;
 	return bResult;
 }
 
-bool CBflim::IsBflimFile(const char* a_pFileName)
+bool CBflim::IsBflimFile(const UString& a_sFileName)
 {
-	FILE* fp = Fopen(a_pFileName, "rb");
+	FILE* fp = UFopen(a_sFileName.c_str(), USTR("rb"));
 	if (fp == nullptr)
 	{
 		return false;
 	}
-	Fseek(fp, 0, SEEK_END);
-	n64 nFileSize = Ftell(fp);
-	if (nFileSize < sizeof(SBflimHeader) + sizeof(SImageBlock))
+	fseek(fp, 0, SEEK_END);
+	u32 uFileSize = ftell(fp);
+	if (uFileSize < sizeof(SBflimHeader) + sizeof(SImageBlock))
 	{
 		return false;
 	}
-	Fseek(fp, nFileSize - (sizeof(SBflimHeader) + sizeof(SImageBlock)), SEEK_SET);
+	fseek(fp, uFileSize - (sizeof(SBflimHeader) + sizeof(SImageBlock)), SEEK_SET);
 	SBflimHeader bflimHeader;
 	fread(&bflimHeader, sizeof(bflimHeader), 1, fp);
 	fclose(fp);
@@ -353,14 +334,22 @@ n32 CBflim::getBoundSize(n32 a_nSize)
 	return nSize;
 }
 
-int CBflim::decode(u8* a_pBuffer, n32 a_nWidth, n32 a_nHeight, n32 a_nFormat, n32 a_nRotate, pvrtexture::CPVRTexture** a_pPVRTexture)
+int CBflim::decode(u8* a_pBuffer, n32 a_nWidth, n32 a_nHeight, n32 a_nFormat, n32 a_nFlag, pvrtexture::CPVRTexture** a_pPVRTexture)
 {
 	n32 nWidth = a_nWidth;
 	n32 nHeight = a_nHeight;
-	if (a_nRotate == 4 || a_nRotate == 8)
+	n32 nRotation = a_nFlag >> kImageFlagTexelRotationPos & (SDW_BIT32(kImageFlagTexelRotationLen) - 1);
+	switch (nRotation)
 	{
+	case kTexelRotationNone:
+		break;
+	case kTexelRotationRotate:
+	case kTexelRotationFlipUV:
 		nWidth = a_nHeight;
 		nHeight = a_nWidth;
+		break;
+	default:
+		return 1;
 	}
 	u8* pRGBA = nullptr;
 	u8* pAlpha = nullptr;
@@ -502,6 +491,8 @@ int CBflim::decode(u8* a_pBuffer, n32 a_nWidth, n32 a_nHeight, n32 a_nFormat, n3
 		break;
 	case kTextureFormatL4:
 	case kTextureFormatA4:
+	case kTextureFormatL4_another:
+	case kTextureFormatA4_another:
 		{
 			u8* pTemp = new u8[nWidth * nHeight];
 			for (n32 i = 0; i < nWidth * nHeight / 64; i++)
@@ -620,9 +611,11 @@ int CBflim::decode(u8* a_pBuffer, n32 a_nWidth, n32 a_nHeight, n32 a_nFormat, n3
 		pvrTextureHeaderV3.u64PixelFormat = pvrtexture::PixelType('l', 'a', 0, 0, 4, 4, 0, 0).PixelTypeID;
 		break;
 	case kTextureFormatL4:
+	case kTextureFormatL4_another:
 		pvrTextureHeaderV3.u64PixelFormat = pvrtexture::PixelType('l', 0, 0, 0, 8, 0, 0, 0).PixelTypeID;
 		break;
 	case kTextureFormatA4:
+	case kTextureFormatA4_another:
 		pvrTextureHeaderV3.u64PixelFormat = pvrtexture::PixelType('a', 0, 0, 0, 8, 0, 0, 0).PixelTypeID;
 		break;
 	case kTextureFormatETC1:
@@ -658,11 +651,11 @@ int CBflim::decode(u8* a_pBuffer, n32 a_nWidth, n32 a_nHeight, n32 a_nFormat, n3
 		}
 		delete[] pAlpha;
 	}
-	if (a_nRotate == 4)
+	if (nRotation == kTexelRotationRotate)
 	{
 		pvrtexture::Rotate90(**a_pPVRTexture, ePVRTAxisZ, false);
 	}
-	else if (a_nRotate == 8)
+	else if (nRotation == kTexelRotationFlipUV)
 	{
 		pvrtexture::Rotate90(**a_pPVRTexture, ePVRTAxisZ, true);
 		pvrtexture::Flip(**a_pPVRTexture, ePVRTAxisX);
@@ -670,7 +663,7 @@ int CBflim::decode(u8* a_pBuffer, n32 a_nWidth, n32 a_nHeight, n32 a_nFormat, n3
 	return 0;
 }
 
-void CBflim::encode(u8* a_pData, n32 a_nWidth, n32 a_nHeight, n32 a_nFormat, n32 a_nRotate, n32 a_nMipmapLevel, n32 a_nBPP, u8** a_pBuffer)
+int CBflim::encode(u8* a_pData, n32 a_nWidth, n32 a_nHeight, n32 a_nFormat, n32 a_nFlag, n32 a_nMipmapLevel, n32 a_nBPP, u8** a_pBuffer)
 {
 	PVRTextureHeaderV3 pvrTextureHeaderV3;
 	pvrTextureHeaderV3.u64PixelFormat = pvrtexture::PVRStandard8PixelType.PixelTypeID;
@@ -711,12 +704,20 @@ void CBflim::encode(u8* a_pData, n32 a_nWidth, n32 a_nHeight, n32 a_nFormat, n32
 	}
 	n32 nWidth = a_nWidth;
 	n32 nHeight = a_nHeight;
-	if (a_nRotate == 4 || a_nRotate == 8)
+	n32 nRotation = a_nFlag >> kImageFlagTexelRotationPos & (SDW_BIT32(kImageFlagTexelRotationLen) - 1);
+	switch (nRotation)
 	{
+	case kTexelRotationNone:
+		break;
+	case kTexelRotationRotate:
+	case kTexelRotationFlipUV:
 		nWidth = a_nHeight;
 		nHeight = a_nWidth;
+		break;
+	default:
+		return 1;
 	}
-	if (a_nRotate == 4)
+	if (nRotation == kTexelRotationRotate)
 	{
 		pvrtexture::Rotate90(*pPVRTexture, ePVRTAxisZ, true);
 		if (a_nFormat == kTextureFormatETC1_A4)
@@ -724,7 +725,7 @@ void CBflim::encode(u8* a_pData, n32 a_nWidth, n32 a_nHeight, n32 a_nFormat, n32
 			pvrtexture::Rotate90(*pPVRTextureAlpha, ePVRTAxisZ, true);
 		}
 	}
-	else if (a_nRotate == 8)
+	else if (nRotation == kTexelRotationFlipUV)
 	{
 		pvrtexture::Flip(*pPVRTexture, ePVRTAxisX);
 		pvrtexture::Rotate90(*pPVRTexture, ePVRTAxisZ, false);
@@ -777,9 +778,11 @@ void CBflim::encode(u8* a_pData, n32 a_nWidth, n32 a_nHeight, n32 a_nFormat, n32
 		uPixelFormat = pvrtexture::PixelType('l', 'a', 0, 0, 4, 4, 0, 0).PixelTypeID;
 		break;
 	case kTextureFormatL4:
+	case kTextureFormatL4_another:
 		uPixelFormat = pvrtexture::PixelType('l', 0, 0, 0, 8, 0, 0, 0).PixelTypeID;
 		break;
 	case kTextureFormatA4:
+	case kTextureFormatA4_another:
 		uPixelFormat = pvrtexture::PixelType('a', 0, 0, 0, 8, 0, 0, 0).PixelTypeID;
 		break;
 	case kTextureFormatETC1:
@@ -951,6 +954,8 @@ void CBflim::encode(u8* a_pData, n32 a_nWidth, n32 a_nHeight, n32 a_nFormat, n32
 			break;
 		case kTextureFormatL4:
 		case kTextureFormatA4:
+		case kTextureFormatL4_another:
+		case kTextureFormatA4_another:
 			{
 				u8* pTemp = new u8[nMipmapWidth * nMipmapHeight];
 				for (n32 i = 0; i < nMipmapHeight; i++)
@@ -1038,4 +1043,5 @@ void CBflim::encode(u8* a_pData, n32 a_nWidth, n32 a_nHeight, n32 a_nFormat, n32
 	{
 		delete pPVRTextureAlpha;
 	}
+	return 0;
 }
