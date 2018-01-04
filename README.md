@@ -4,6 +4,10 @@ A tool for decoding/encoding bflim file.
 
 ## History
 
+- v1.1.0 @ 2018.01.04 - A new beginning
+
+### v1.0
+
 - v1.0.0 @ 2015.03.14 - First release
 - v1.0.1 @ 2017.07.29 - Commandline support unicode
 
